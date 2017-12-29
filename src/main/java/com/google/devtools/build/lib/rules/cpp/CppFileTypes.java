@@ -110,6 +110,8 @@ public final class CppFileTypes {
         }
       };
 
+  public static final FileType SOURCE_ARCHIVE = FileType.of(".zip");
+
   public static final FileType ALWAYS_LINK_PIC_LIBRARY = FileType.of(".pic.lo");
   public static final FileType ALWAYS_LINK_LIBRARY =
       new FileType() {

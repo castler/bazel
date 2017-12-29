@@ -30,6 +30,7 @@ import static com.google.devtools.build.lib.rules.cpp.CppFileTypes.CPP_SOURCE;
 import static com.google.devtools.build.lib.rules.cpp.CppFileTypes.C_SOURCE;
 import static com.google.devtools.build.lib.rules.cpp.CppFileTypes.OBJECT_FILE;
 import static com.google.devtools.build.lib.rules.cpp.CppFileTypes.PIC_ARCHIVE;
+import static com.google.devtools.build.lib.rules.cpp.CppFileTypes.SOURCE_ARCHIVE;
 import static com.google.devtools.build.lib.rules.cpp.CppFileTypes.PIC_OBJECT_FILE;
 import static com.google.devtools.build.lib.rules.cpp.CppFileTypes.SHARED_LIBRARY;
 import static com.google.devtools.build.lib.rules.cpp.CppFileTypes.VERSIONED_SHARED_LIBRARY;
@@ -104,6 +105,7 @@ public class BazelCppRuleClasses {
           ASSEMBLER,
           ARCHIVE,
           PIC_ARCHIVE,
+          SOURCE_ARCHIVE,
           ALWAYS_LINK_LIBRARY,
           ALWAYS_LINK_PIC_LIBRARY,
           SHARED_LIBRARY,
@@ -329,6 +331,7 @@ public class BazelCppRuleClasses {
               <code>.hxx</code>, <code>.inc</code></li>
             <li>Assembler with C preprocessor: <code>.S</code></li>
             <li>Archive: <code>.a</code>, <code>.pic.a</code></li>
+            <li>Source Archives: <code>.zip</code></li>
             <li>"Always link" library: <code>.lo</code>, <code>.pic.lo</code></li>
             <li>Shared library, versioned or unversioned: <code>.so</code>,
               <code>.so.<i>version</i></code></li>
@@ -338,6 +341,10 @@ public class BazelCppRuleClasses {
             ...and any rules that produce those files.
             Different extensions denote different programming languages in
             accordance with gcc convention.
+          </p>
+          <p>
+            Source files of type <code>.zip</code> are unpacked and compiled. (This is useful if
+            you need to generate a set of <code>.cpp</code> files with a genrule.)
           </p>
           <!-- #END_BLAZE_RULE.ATTRIBUTE -->*/
           .add(
