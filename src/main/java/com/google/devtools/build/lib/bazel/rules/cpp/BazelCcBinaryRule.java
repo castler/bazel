@@ -15,11 +15,13 @@
 package com.google.devtools.build.lib.bazel.rules.cpp;
 
 import static com.google.devtools.build.lib.packages.Attribute.attr;
+import static com.google.devtools.build.lib.packages.BuildType.LABEL;
 import static com.google.devtools.build.lib.syntax.Type.BOOLEAN;
 
 import com.google.devtools.build.lib.analysis.BaseRuleClasses;
 import com.google.devtools.build.lib.analysis.RuleDefinition;
 import com.google.devtools.build.lib.analysis.RuleDefinitionEnvironment;
+import com.google.devtools.build.lib.analysis.config.HostTransition;
 import com.google.devtools.build.lib.bazel.rules.cpp.BazelCppRuleClasses.CcBinaryBaseRule;
 import com.google.devtools.build.lib.packages.RuleClass;
 import com.google.devtools.build.lib.packages.RuleClass.Builder;
@@ -73,6 +75,11 @@ public final class BazelCcBinaryRule implements RuleDefinition {
             attr("linkshared", BOOLEAN)
                 .value(false)
                 .nonconfigurable("used to *determine* the rule's configuration"))
+        .add(
+            attr("$zipper", LABEL)
+                .cfg(HostTransition.INSTANCE)
+                .exec()
+                .value(env.getToolsLabel("//tools/zip:zipper")))
         .cfg(CppRuleClasses.LIPO_ON_DEMAND)
         .build();
   }

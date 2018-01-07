@@ -30,6 +30,8 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 import com.google.devtools.build.lib.actions.Artifact;
+import com.google.devtools.build.lib.actions.ArtifactFactory;
+import com.google.devtools.build.lib.actions.Root;
 import com.google.devtools.build.lib.analysis.AnalysisUtils;
 import com.google.devtools.build.lib.analysis.FileProvider;
 import com.google.devtools.build.lib.analysis.LanguageDependentFragment;
@@ -40,10 +42,12 @@ import com.google.devtools.build.lib.analysis.RunfilesProvider;
 import com.google.devtools.build.lib.analysis.TransitiveInfoCollection;
 import com.google.devtools.build.lib.analysis.TransitiveInfoProviderMap;
 import com.google.devtools.build.lib.analysis.TransitiveInfoProviderMapBuilder;
+import com.google.devtools.build.lib.analysis.actions.PopulateTreeArtifactAction;
 import com.google.devtools.build.lib.analysis.actions.SymlinkAction;
 import com.google.devtools.build.lib.analysis.config.BuildConfiguration;
 import com.google.devtools.build.lib.analysis.configuredtargets.RuleConfiguredTarget.Mode;
 import com.google.devtools.build.lib.cmdline.Label;
+import com.google.devtools.build.lib.cmdline.RepositoryName;
 import com.google.devtools.build.lib.collect.nestedset.NestedSet;
 import com.google.devtools.build.lib.collect.nestedset.NestedSetBuilder;
 import com.google.devtools.build.lib.collect.nestedset.Order;
@@ -59,14 +63,9 @@ import com.google.devtools.build.lib.syntax.Type;
 import com.google.devtools.build.lib.util.FileTypeSet;
 import com.google.devtools.build.lib.util.Pair;
 import com.google.devtools.build.lib.vfs.PathFragment;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
+
+import java.io.IOException;
+import java.util.*;
 import javax.annotation.Nullable;
 
 /**
@@ -578,6 +577,36 @@ public final class CcLibraryHelper {
    */
   private void addSource(Artifact source, Label label) {
     Preconditions.checkNotNull(featureConfiguration);
+
+    boolean isSourceTar = CppFileTypes.SOURCE_ARCHIVE.matches(source.getExecPath());
+    if(isSourceTar) {
+
+      Root root = this.configuration.getGenfilesDirectory(RepositoryName.MAIN);
+      ArtifactFactory artifactFactory = new ArtifactFactory(root.getPath(), "");
+      PathFragment populatedFolderName = PathFragment.create("unzipped");
+
+      Artifact populateTreeArtifact = artifactFactory.getTreeArtifact(
+              populatedFolderName,
+              root,
+              ruleContext.createOutputArtifact().getArtifactOwner()
+      );
+
+      PopulateTreeArtifactAction populateTreeAction = new PopulateTreeArtifactAction(
+              ruleContext.getActionOwner(),
+              source, // archive
+              populateTreeArtifact, // populate target
+              Objects.requireNonNull(ruleContext.getExecutablePrerequisite("$zipper", Mode.HOST))
+      );
+      ruleContext.registerAction(populateTreeAction);
+      try {
+        for (PathFragment generatedSources : populateTreeAction.getArchiveEntries()) {
+          addSources(ruleContext.getGenfilesArtifact(generatedSources));
+        }
+      } catch (IOException e) {
+        System.out.println("Unable to create artifact.");
+      }
+    }
+
     boolean isHeader = CppFileTypes.CPP_HEADER.matches(source.getExecPath());
     boolean isTextualInclude = CppFileTypes.CPP_TEXTUAL_INCLUDE.matches(source.getExecPath());
     // We assume TreeArtifacts passed in are directories containing proper sources for compilation.
