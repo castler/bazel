@@ -18,31 +18,17 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
-import com.google.devtools.build.lib.actions.AbstractAction;
-import com.google.devtools.build.lib.actions.ActionAnalysisMetadata;
-import com.google.devtools.build.lib.actions.ActionExecutionContext;
-import com.google.devtools.build.lib.actions.ActionExecutionException;
-import com.google.devtools.build.lib.actions.ActionExecutionMetadata;
-import com.google.devtools.build.lib.actions.ActionInput;
-import com.google.devtools.build.lib.actions.ActionInputHelper;
-import com.google.devtools.build.lib.actions.ActionKeyContext;
-import com.google.devtools.build.lib.actions.ActionOwner;
-import com.google.devtools.build.lib.actions.ActionResult;
-import com.google.devtools.build.lib.actions.Actions;
-import com.google.devtools.build.lib.actions.Artifact;
+import com.google.devtools.build.lib.actions.*;
 import com.google.devtools.build.lib.actions.Artifact.TreeFileArtifact;
-import com.google.devtools.build.lib.actions.ArtifactPrefixConflictException;
-import com.google.devtools.build.lib.actions.BaseSpawn;
-import com.google.devtools.build.lib.actions.ExecException;
-import com.google.devtools.build.lib.actions.RunfilesSupplier;
-import com.google.devtools.build.lib.actions.Spawn;
-import com.google.devtools.build.lib.actions.SpawnActionContext;
-import com.google.devtools.build.lib.actions.SpawnResult;
 import com.google.devtools.build.lib.analysis.FilesToRunProvider;
+import com.google.devtools.build.lib.cmdline.Label;
+import com.google.devtools.build.lib.cmdline.LabelSyntaxException;
 import com.google.devtools.build.lib.util.Fingerprint;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
 import com.google.devtools.build.lib.vfs.PathFragment;
 import java.io.IOException;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -74,7 +60,6 @@ public final class PopulateTreeArtifactAction extends AbstractAction {
   static final String MNEMONIC = "PopulateTreeArtifact";
 
   private final Artifact archive;
-  private final Artifact archiveManifest;
   private final Artifact outputTreeArtifact;
   private final FilesToRunProvider zipper;
 
@@ -83,22 +68,19 @@ public final class PopulateTreeArtifactAction extends AbstractAction {
    *
    * @param owner the owner of the action.
    * @param archive the archive containing files to populate into the TreeArtifact.
-   * @param archiveManifest the archive manifest file specifying the entry files to populate into
-   *     the TreeArtifact.
    * @param treeArtifactToPopulate the TreeArtifact to be populated with archive member files.
    * @param zipper the zipper executable used to unzip the archive.
    */
   public PopulateTreeArtifactAction(
       ActionOwner owner,
       Artifact archive,
-      Artifact archiveManifest,
       Artifact treeArtifactToPopulate,
       FilesToRunProvider zipper) {
     super(
         owner,
         ImmutableList.copyOf(zipper.getFilesToRun()),
         Iterables.concat(
-            ImmutableList.of(archive, archiveManifest),
+            ImmutableList.of(archive),
             ImmutableList.copyOf(zipper.getFilesToRun())),
         ImmutableList.of(treeArtifactToPopulate));
 
@@ -108,7 +90,6 @@ public final class PopulateTreeArtifactAction extends AbstractAction {
         treeArtifactToPopulate);
 
     this.archive = archive;
-    this.archiveManifest = archiveManifest;
     this.outputTreeArtifact = treeArtifactToPopulate;
     this.zipper = zipper;
   }
@@ -163,8 +144,6 @@ public final class PopulateTreeArtifactAction extends AbstractAction {
       spawn = createSpawn();
     } catch (IOException e) {
       throw new ActionExecutionException(e, this, false);
-    } catch (IllegalManifestFileException e) {
-      throw new ActionExecutionException(e, this, true);
     }
 
     // If the spawn does not have any output, it means the archive file contains nothing. In this
@@ -243,8 +222,8 @@ public final class PopulateTreeArtifactAction extends AbstractAction {
    * TreeArtifact.
    */
   @VisibleForTesting
-  Spawn createSpawn() throws IOException, IllegalManifestFileException {
-    Iterable<PathFragment> entries = readAndCheckManifestEntries();
+  Spawn createSpawn() throws IOException {
+    Iterable<PathFragment> entries = getArchiveEntries();
     return new PopulateTreeArtifactSpawn(
         outputTreeArtifact,
         entries,
@@ -259,29 +238,29 @@ public final class PopulateTreeArtifactAction extends AbstractAction {
         "x",
         archive.getExecPathString(),
         "-d",
-        outputTreeArtifact.getExecPathString(),
-        "@" + archiveManifest.getExecPathString());
+        outputTreeArtifact.getExecPathString()
+    );
   }
 
-  private Iterable<PathFragment> readAndCheckManifestEntries()
-      throws IOException, IllegalManifestFileException {
-    ImmutableList.Builder<PathFragment> manifestEntries = ImmutableList.builder();
+  public Iterable<PathFragment> getArchiveEntries() throws IOException {
+    ImmutableList.Builder<PathFragment> entries = ImmutableList.builder();
 
-    for (String line :
-        FileSystemUtils.iterateLinesAsLatin1(archiveManifest.getPath())) {
-      if (!line.isEmpty()) {
-        PathFragment path = PathFragment.create(line);
-
-        if (!path.isNormalized() || path.isAbsolute()) {
-          throw new IllegalManifestFileException(
-              path + " is not a proper relative path");
+    // open the archive as a file system
+    FileSystem archiveFileSystem = FileSystems.newFileSystem(archive.getPath().getPathFile().toPath(), null);
+    for(Path rootDirectories : archiveFileSystem.getRootDirectories()) {
+      Files.walkFileTree(
+        rootDirectories,
+        new SimpleFileVisitor<Path>() {
+          @Override
+          public FileVisitResult visitFile(Path archiveEntry, BasicFileAttributes attrs) {
+            PathFragment a = PathFragment.create(archiveEntry.toFile());
+            entries.add(a);
+            return FileVisitResult.CONTINUE;
+          }
         }
-
-        manifestEntries.add(path);
-      }
+      );
     }
-
-    return manifestEntries.build();
+    return entries.build();
   }
 
   private void checkOutputConflicts(Collection<? extends ActionInput> outputs)
@@ -300,10 +279,4 @@ public final class PopulateTreeArtifactAction extends AbstractAction {
     }
   }
 
-  private static class IllegalManifestFileException extends Exception {
-
-    IllegalManifestFileException(String message) {
-      super(message);
-    }
-  }
 }
